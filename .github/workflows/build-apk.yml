@@ -148,22 +148,14 @@ jobs:
       - name: Zipalign
         run: |
           INPUT=$(ls app/build/outputs/apk/release/*-unsigned.apk | head -1)
-          zipalign -v 4 "$INPUT" app/build/outputs/apk/release/app-aligned.apk
-
-      - name: Sign APK
-        run: |
-          apksigner sign \
-            --ks "${{ secrets.KEYSTORE_PATH }}" \
-            --ks-key-alias "${{ secrets.KEY_ALIAS }}" \
-            --ks-pass "pass:${{ secrets.KEYSTORE_PASSWORD }}" \
-            --key-pass "pass:${{ secrets.KEY_PASSWORD }}" \
-            app/build/outputs/apk/release/app-aligned.apk
+          ZIPALIGN=$(ls /usr/local/lib/android/sdk/build-tools/*/zipalign | sort | tail -1)
+          "$ZIPALIGN" -v 4 "$INPUT" app/build/outputs/apk/release/app-aligned.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: telegram-android-optimized
-          path: app/build/outputs/apk/release/*.apk
+          path: app/build/outputs/apk/release/app-aligned.apk
 
   bench:
     name: Crypto benchmarks
