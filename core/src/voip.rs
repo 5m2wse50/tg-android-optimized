@@ -118,5 +118,3 @@ impl VoipController {
         frame.to_vec()
     }
 }
-EOF
-echo created
