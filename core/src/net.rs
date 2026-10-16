@@ -6,7 +6,7 @@
 
 use bytes::{Bytes, BytesMut};
 use crc32fast;
-use socket2::{Domain, Protocol, Socket, Type};
+use socket2::{Domain, Protocol, Socket, Type, SockAddr};
 use std::io;
 use std::net::SocketAddr;
 use std::time::Duration;
@@ -31,11 +31,12 @@ impl TgSocket {
             .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
         let socket = Socket::new(Domain::for_address(std_addr), Type::STREAM, Some(Protocol::TCP))?;
         socket.set_nodelay(true)?;
-        socket.set_keepalive(Some(KEEPALIVE))?;
+        socket.set_keepalive(true)?;
         socket.set_recv_buffer_size(1024 * 1024)?;
         socket.set_send_buffer_size(1024 * 1024)?;
         socket.set_nonblocking(true)?;
-        socket.connect_timeout(&std_addr, CONNECT_TIMEOUT)?;
+        let sock_addr = SockAddr::from(std_addr);
+        socket.connect_timeout(&sock_addr, CONNECT_TIMEOUT)?;
         let stream = TcpStream::from_std(socket.into())?;
         Ok(Self {
             stream,
@@ -64,7 +65,7 @@ impl TgSocket {
         Ok(())
     }
 
-    pub async fn write_all_zero_copy(&mut self, mut data: BytesMut) -> io::Result<()> {
+    pub async fn write_all_zero_copy(&mut self, data: BytesMut) -> io::Result<()> {
         self.stream.write_all(&data).await?;
         self.stream.flush().await?;
         Ok(())
@@ -118,7 +119,7 @@ pub fn encode_mtproto_frame(
 
 /// Zero-copy slice out of an assembled frame (e.g. for pipelined sends).
 #[inline(always)]
-pub fn frame_slice(frame: &BytesMut, off: usize, len: usize) -> Bytes {
+pub fn frame_slice(frame: &Bytes, off: usize, len: usize) -> Bytes {
     frame.slice(off..off + len)
 }
 
