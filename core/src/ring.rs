@@ -70,5 +70,3 @@ impl<T> Drop for SpScRing<T> {
         while self.try_pop().is_some() {}
     }
 }
-EOF
-echo done
