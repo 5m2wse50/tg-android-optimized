@@ -1,0 +1,206 @@
+name: build-android
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+
+env:
+  RUST_TOOLCHAIN: "1.85.0"
+  NDK_VERSION: "26.3.11579264"
+  ANDROID_COMPILE_SDK: "34"
+  ANDROID_TARGET_SDK: "34"
+  ANDROID_BUILD_TOOLS: "34.0.0"
+  CARGO_TERM_COLOR: always
+  SCCACHE_GHA_ENABLED: "true"
+  RUSTC_WRAPPER: sccache
+  CARGO_INCREMENTAL: "0"
+
+jobs:
+  test-core:
+    name: Unit tests (host)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          targets: x86_64-unknown-linux-gnu
+      - name: Cache cargo registry/git
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: cargo-host-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: cargo-host-${{ runner.os }}-
+      - name: Run cargo test
+        working-directory: core
+        run: cargo test --target x86_64-unknown-linux-gnu
+
+  build-core:
+    name: Build tg-core (${{ matrix.abi }})
+    needs: [test-core]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - abi: arm64-v8a
+            rust_target: aarch64-linux-android
+            rustflags: "-C target-feature=+neon,+crc"
+          - abi: armeabi-v7a
+            rust_target: armv7-linux-androideabi
+            rustflags: "-C target-feature=+neon,+vfp3"
+          - abi: x86_64
+            rust_target: x86_64-linux-android
+            rustflags: "-C target-feature=+sse4.2,+avx2"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: mozilla-actions/sccache-action@v0.0.5
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          targets: ${{ matrix.rust_target }}
+
+      - name: Cache cargo registry/git
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: cargo-${{ runner.os }}-${{ matrix.rust_target }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: cargo-${{ runner.os }}-${{ matrix.rust_target }}-
+
+      - name: Cache target
+        uses: actions/cache@v4
+        with:
+          path: core/target
+          key: target-${{ runner.os }}-${{ matrix.rust_target }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: target-${{ runner.os }}-${{ matrix.rust_target }}-
+
+      - name: Install NDK
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: ${{ env.NDK_VERSION }}
+
+      - name: Resolve linker for target
+        run: |
+          set -euo pipefail
+          case "${{ matrix.rust_target }}" in
+            aarch64-linux-android) CLANG=aarch64-linux-android21-clang ;;
+            armv7-linux-androideabi) CLANG=armv7a-linux-androideabi21-clang ;;
+            x86_64-linux-android) CLANG=x86_64-linux-android21-clang ;;
+            *) echo "unknown target"; exit 1 ;;
+          esac
+          LINKER="${ANDROID_NDK}/toolchains/llvm/prebuilt/linux-x86_64/bin/${CLANG}"
+          echo "CARGO_TARGET_$(echo '${{ matrix.rust_target }}' | tr 'a-z-' 'A-Z_')_LINKER=${LINKER}" >> "$GITHUB_ENV"
+          echo "Using linker: ${LINKER}"
+
+      - name: Build Rust core
+        working-directory: core
+        env:
+          RUSTFLAGS: "${{ matrix.rustflags }} -C debuginfo=0"
+        run: cargo build --release --target ${{ matrix.rust_target }}
+
+      - name: Regenerate UniFFI Kotlin binding
+        working-directory: core
+        run: |
+          cargo install uniffi-bindgen-cli --version 0.28 --locked
+          uniffi-bindgen generate src/lib.rs \
+            --language kotlin \
+            --out-dir ../core-binding/kotlin
+
+      - name: Stage .so into jniLibs
+        run: |
+          mkdir -p app/src/main/jniLibs/${{ matrix.abi }}
+          cp core/target/${{ matrix.rust_target }}/release/libtg_core.so \
+             app/src/main/jniLibs/${{ matrix.abi }}/libtgcore.so
+
+      - name: Upload shared library
+        uses: actions/upload-artifact@v4
+        with:
+          name: libtgcore-${{ matrix.abi }}
+          path: app/src/main/jniLibs/${{ matrix.abi }}/libtgcore.so
+
+  build-apk:
+    name: Assemble release APK
+    needs: [build-core]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          cache-disabled: false
+
+      - name: Download native libraries
+        uses: actions/download-artifact@v4
+        with:
+          path: app/src/main/jniLibs
+          pattern: libtgcore-*
+          merge-multiple: true
+
+      - name: Enable R8 full mode (aggressive dead-code removal)
+        run: |
+          touch gradle.properties
+          echo 'android.enableR8.fullMode=true' >> gradle.properties
+
+      - name: Assemble release APK
+        run: gradle :app:assembleRelease --no-daemon
+
+      - name: Zipalign
+        run: |
+          INPUT=$(ls app/build/outputs/apk/release/*-unsigned.apk | head -1)
+          zipalign -v 4 "$INPUT" app/build/outputs/apk/release/app-aligned.apk
+
+      - name: Sign APK
+        run: |
+          apksigner sign \
+            --ks "${{ secrets.KEYSTORE_PATH }}" \
+            --ks-key-alias "${{ secrets.KEY_ALIAS }}" \
+            --ks-pass "pass:${{ secrets.KEYSTORE_PASSWORD }}" \
+            --key-pass "pass:${{ secrets.KEY_PASSWORD }}" \
+            app/build/outputs/apk/release/app-aligned.apk
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: telegram-android-optimized
+          path: app/build/outputs/apk/release/*.apk
+
+  bench:
+    name: Crypto benchmarks
+    needs: [test-core]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            core/target
+          key: bench-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+      - name: Run benchmarks
+        working-directory: core
+        run: cargo bench -- --output-format bencher | tee bench.txt || true
+      - name: Upload bench report
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-report
+          path: core/target/criterion
