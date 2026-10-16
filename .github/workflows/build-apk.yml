@@ -106,7 +106,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: libtgcore-${{ matrix.abi }}
-          path: app/src/main/jniLibs/${{ matrix.abi }}/libtgcore.so
+          path: app/src/main/jniLibs
 
   build-apk:
     name: Assemble release APK
@@ -133,7 +133,7 @@ jobs:
       - name: Download native libraries
         uses: actions/download-artifact@v4
         with:
-          path: app/src/main/jniLibs
+          path: app/src/main
           pattern: libtgcore-*
           merge-multiple: true
 
