@@ -12,9 +12,6 @@ env:
   ANDROID_TARGET_SDK: "34"
   ANDROID_BUILD_TOOLS: "34.0.0"
   CARGO_TERM_COLOR: always
-  SCCACHE_GHA_ENABLED: "true"
-  RUSTC_WRAPPER: sccache
-  CARGO_INCREMENTAL: "0"
 
 jobs:
   test-core:
@@ -22,7 +19,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: mozilla-actions/sccache-action@v0.0.5
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
@@ -58,8 +54,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - uses: mozilla-actions/sccache-action@v0.0.5
 
       - uses: dtolnay/rust-toolchain@stable
         with:
