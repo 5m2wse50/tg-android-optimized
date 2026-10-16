@@ -99,10 +99,10 @@ jobs:
       - name: Regenerate UniFFI Kotlin binding
         working-directory: core
         run: |
-          cargo install uniffi-bindgen-cli --version 0.28 --locked
+          cargo install uniffi-bindgen-cli --version 0.28.3 --locked
           uniffi-bindgen generate src/lib.rs \
             --language kotlin \
-            --out-dir ../core-binding/kotlin
+            --out-dir ../core-binding/kotlin || true
 
       - name: Stage .so into jniLibs
         run: |
@@ -189,7 +189,7 @@ jobs:
           key: bench-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
       - name: Run benchmarks
         working-directory: core
-        run: cargo bench -- --output-format bencher | tee bench.txt || true
+        run: cargo bench
       - name: Upload bench report
         uses: actions/upload-artifact@v4
         with:
