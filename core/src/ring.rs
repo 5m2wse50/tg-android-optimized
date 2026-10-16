@@ -40,7 +40,7 @@ impl<T> SpScRing<T> {
         if n.wrapping_sub(self.head.load(Ordering::Acquire)) > CAP as u64 {
             return false;
         }
-        let slot = &self.buf[(t % CAP as u64) as usize];
+        let slot = &mut self.buf[(t % CAP as u64) as usize];
         slot.data.write(v);
         slot.seq.store(n, Ordering::Release);
         self.tail.store(n, Ordering::Release);

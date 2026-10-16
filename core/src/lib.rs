@@ -3,7 +3,7 @@ pub mod net;
 pub mod ring;
 pub mod voip;
 
-use mtproto_crypto::{aes_ige_decrypt, aes_ige_encrypt, derive_mtproto_keys, sha256, MtprotoKeys as CoreKeys};
+use mtproto_crypto::{aes_ige_decrypt, aes_ige_encrypt, derive_mtproto_keys, sha256};
 
 /// UniFFI-exposed key bundle.
 #[derive(uniffi::Record)]

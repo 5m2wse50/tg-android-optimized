@@ -7,7 +7,6 @@ use aes::cipher::{BlockDecrypt, BlockEncrypt, KeyInit};
 use aes::Aes256;
 use bytes::Bytes;
 use sha2::{Digest, Sha256};
-use uniffi::Record;
 
 const BLOCK: usize = 16;
 
