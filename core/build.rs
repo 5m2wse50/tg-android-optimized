@@ -1,5 +1,3 @@
-fn main() {
-    // Generates UniFFI scaffolding into the crate at build time (runs in CI, not locally).
-    uniffi_build::generate_scaffolding("./src/lib.rs")
-        .expect("uniffi scaffolding generation failed");
-}
+// Proc-macro based UniFFI scaffolding is generated via `uniffi::setup_scaffolding!()`
+// in src/lib.rs; no UDL parsing required at build time.
+fn main() {}
