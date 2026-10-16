@@ -60,7 +60,7 @@ pub fn derive_mtproto_keys(auth_key: &[u8], msg_key: &[u8]) -> MtprotoKeys {
 
     let mut iv = [0u8; 16];
     iv[..8].copy_from_slice(&b[..8]);
-    iv[8..].copy_from_slice(&a[8..24]);
+    iv[8..].copy_from_slice(&a[8..16]);
 
     MtprotoKeys { aes_key, iv }
 }
