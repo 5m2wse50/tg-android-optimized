@@ -151,6 +151,20 @@ jobs:
           ZIPALIGN=$(ls /usr/local/lib/android/sdk/build-tools/*/zipalign | sort | tail -1)
           "$ZIPALIGN" -v 4 "$INPUT" app/build/outputs/apk/release/app-aligned.apk
 
+      - name: Sign APK with CI-generated debug keystore
+        run: |
+          APKSIGNER=$(ls /usr/local/lib/android/sdk/build-tools/*/apksigner | sort | tail -1)
+          keytool -genkeypair -v \
+            -keystore /tmp/ci-debug.keystore \
+            -storepass android -keypass android \
+            -alias ci -keyalg RSA -keysize 2048 -validity 10000 \
+            -dname "CN=CI Debug, O=TG, C=US"
+          "$APKSIGNER" sign \
+            --ks /tmp/ci-debug.keystore \
+            --ks-key-alias ci \
+            --ks-pass pass:android --key-pass pass:android \
+            app/build/outputs/apk/release/app-aligned.apk
+
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
