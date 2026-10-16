@@ -1,5 +1,6 @@
 //! Wait-free single-producer/single-consumer ring buffer for audio frames.
 
+use core::cell::UnsafeCell;
 use core::sync::atomic::{AtomicU64, Ordering};
 
 #[repr(C, align(64))]
@@ -11,14 +12,16 @@ pub struct RingSlot<T> {
 pub const CAP: usize = 1 << 12;
 
 pub struct SpScRing<T> {
-    buf: Box<[RingSlot<T>]>,
+    buf: UnsafeCell<Box<[RingSlot<T>]>>,
     head: AtomicU64,
     tail: AtomicU64,
 }
 
+unsafe impl<T: Send> Send for SpScRing<T> {}
+unsafe impl<T: Send> Sync for SpScRing<T> {}
+
 impl<T> SpScRing<T> {
     pub fn new() -> Self {
-        // Initialize slots with sequence numbers 0 (empty) and MaybeUninit.
         let mut v = Vec::with_capacity(CAP);
         for _ in 0..CAP {
             v.push(RingSlot {
@@ -27,7 +30,7 @@ impl<T> SpScRing<T> {
             });
         }
         Self {
-            buf: v.into_boxed_slice(),
+            buf: UnsafeCell::new(v.into_boxed_slice()),
             head: AtomicU64::new(0),
             tail: AtomicU64::new(0),
         }
@@ -40,7 +43,7 @@ impl<T> SpScRing<T> {
         if n.wrapping_sub(self.head.load(Ordering::Acquire)) > CAP as u64 {
             return false;
         }
-        let slot = &mut self.buf[(t % CAP as u64) as usize];
+        let slot = unsafe { &mut (*self.buf.get())[(t % CAP as u64) as usize] };
         slot.data.write(v);
         slot.seq.store(n, Ordering::Release);
         self.tail.store(n, Ordering::Release);
@@ -51,7 +54,7 @@ impl<T> SpScRing<T> {
     pub fn try_pop(&self) -> Option<T> {
         let h = self.head.load(Ordering::Acquire);
         let cur = h.wrapping_add(1);
-        let slot = &self.buf[(h % CAP as u64) as usize];
+        let slot = unsafe { &(*self.buf.get())[(h % CAP as u64) as usize] };
         if slot.seq.load(Ordering::Acquire) == cur {
             let v = unsafe { slot.data.assume_init_read() };
             self.head.store(cur, Ordering::Release);
@@ -64,7 +67,8 @@ impl<T> SpScRing<T> {
 
 impl<T> Drop for SpScRing<T> {
     fn drop(&mut self) {
-        // Drain remaining items to drop them.
         while self.try_pop().is_some() {}
     }
 }
+EOF
+echo done
